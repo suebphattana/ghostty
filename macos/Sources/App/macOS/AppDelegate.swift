@@ -301,6 +301,9 @@ class AppDelegate: NSObject,
         // Start IPC socket server
         GhosttyIPCServer.shared.start()
 
+        // Start monitoring per-tab listening ports for the sidebar.
+        PortMonitor.shared.start()
+
         // Observe our appearance so we can report the correct value to libghostty.
         self.appearanceObserver = NSApplication.shared.observe(
             \.effectiveAppearance,
@@ -438,6 +441,7 @@ class AppDelegate: NSObject,
 
     func applicationWillTerminate(_ notification: Notification) {
         GhosttyIPCServer.shared.stop()
+        PortMonitor.shared.stop()
 
         // We have no notifications we want to persist after death,
         // so remove them all now. In the future we may want to be

@@ -336,7 +336,25 @@ extension Ghostty {
 
             // Return false if there is no text-like clipboard content so
             // performable paste bindings can pass through to the terminal.
-            guard let str = pasteboard.getOpinionatedStringContents() else { return false }
+            guard let str = pasteboard.getOpinionatedStringContents() else {
+                // The clipboard has no text, but if it holds an image (e.g. a
+                // screenshot) and this is the standard clipboard (a user paste),
+                // forward the same control byte that Ctrl+V sends (0x16). Terminal
+                // apps that read images directly from the system clipboard — like
+                // Claude Code — take it from there. This lets Cmd+V paste images
+                // without affecting normal text paste, which still uses the path
+                // above whenever the clipboard contains any text.
+                if location == GHOSTTY_CLIPBOARD_STANDARD, pasteboard.hasImageContent() {
+                    let ctrlV = "\u{16}"
+                    let len = ctrlV.utf8CString.count
+                    ctrlV.withCString { ptr in
+                        // len includes the null terminator so we send len - 1.
+                        ghostty_surface_text(surface, ptr, UInt(len - 1))
+                    }
+                    return true
+                }
+                return false
+            }
 
             completeClipboardRequest(surface, data: str, state: state)
             return true

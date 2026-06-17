@@ -15,7 +15,9 @@ Replaces the native tab bar with a left sidebar showing rich tab cards:
 
 - **Title, directory, git branch** — git branch detected automatically, no setup needed
 - **Custom status entries** — show ports, environments, or any metadata via CLI
-- **Attention indicators** — orange dot on tabs with notifications or bell
+- **Colored agent status** — `working` (amber, pulsing), `done` (green), `error` (red), `idle` (gray) so you can see at a glance which tab is busy and which is waiting on you
+- **Live ports** — listening ports of processes running in each tab (e.g. `:3000`), click to open `http://localhost:<port>` in your browser
+- **Attention indicators** — pulsing dot on tabs with notifications or bell
 - **Drag-and-drop** — reorder tabs by dragging
 - **Theme-aware** — colors derived from your terminal theme
 
@@ -23,7 +25,7 @@ Replaces the native tab bar with a left sidebar showing rich tab cards:
 
 ```
 # Choose which fields to show (default: all)
-sidebar-fields = title,directory,git-branch,status
+sidebar-fields = title,directory,git-branch,status,ports
 ```
 
 ### CLI
@@ -34,19 +36,66 @@ Install: symlink `cli/ghosttyctl` to somewhere on your PATH (e.g. `~/.local/bin/
 ghosttyctl rename "My Tab"                                    # rename tab
 ghosttyctl notify --title "Done" --body "Build finished"      # send notification
 ghosttyctl set-status server "localhost:3000" --icon network  # add status entry
+ghosttyctl set-status agent working --state working           # colored, pulsing status
 ghosttyctl clear-status server                                # remove it
 ghosttyctl list                                               # list all tabs
 ghosttyctl current                                            # current tab info
 ```
 
+`--state` accepts `working` (amber, pulsing), `done` (green), `error` (red), or
+`idle` (gray). Without `--state`, the entry is shown in the normal muted style.
+
+Each tab's shell gets a `GHOSTTY_TAB_ID` environment variable, so `ghosttyctl`
+invoked from inside a tab (or its child processes, like a Claude Code hook)
+automatically targets *that* tab — not just the focused one.
+
+### Ports
+
+Listening ports opened by processes inside a tab are detected automatically and
+shown as clickable `:port` chips (click opens `http://localhost:<port>`).
+Attribution uses the inherited `GHOSTTY_TAB_ID`, so a dev server started in a tab
+appears on that tab even when it isn't focused. Add/remove `ports` in
+`sidebar-fields` to toggle.
+
 ### Claude Code
 
-Add to your `~/.claude/CLAUDE.md` so Claude Code can name its tabs and set status:
+Two integrations:
+
+**1. Tab naming + status (CLAUDE.md).** Add to your `~/.claude/CLAUDE.md` so Claude
+Code names its tabs and can set explicit status:
 
 ```markdown
 - Rename the workspace using: `ghosttyctl rename "Claude: <name>"`. Name it after the work being done.
-- Set sidebar status entries using `ghosttyctl set-status <key> <value> [--icon <sf-symbol>]` and clear with `ghosttyctl clear-status <key>`.
+- Set sidebar status entries using `ghosttyctl set-status <key> <value> [--icon <sf-symbol>] [--state working|done|error|idle]` and clear with `ghosttyctl clear-status <key>`.
 ```
+
+**2. Automatic working/done state (hooks).** Add hooks to `~/.claude/settings.json`
+to drive the colored `agent` status automatically as Claude runs and finishes.
+Each hook targets the correct tab via the inherited `GHOSTTY_TAB_ID`:
+
+| Event | Status set |
+| --- | --- |
+| `UserPromptSubmit`, `PreToolUse` | `working` (amber, pulsing) |
+| `Stop`, `Notification` | `done` (green — your turn) |
+| `SessionEnd` | cleared |
+
+```jsonc
+// each command:
+"<path>/ghosttyctl set-status agent working --state working --icon hammer.fill >/dev/null 2>&1 || true"
+"<path>/ghosttyctl set-status agent done    --state done    --icon checkmark.circle.fill >/dev/null 2>&1 || true"
+"<path>/ghosttyctl clear-status agent >/dev/null 2>&1 || true"
+```
+
+The hooks are harmless outside this fork: if Ghostty isn't running the IPC
+socket, `ghosttyctl` just exits quietly.
+
+### Pasting images with Cmd+V
+
+Terminal apps that read images straight from the system clipboard (like Claude
+Code) normally only get them via **Ctrl+V**, because macOS terminals swallow
+**Cmd+V** as a text paste. This fork makes **Cmd+V** also work: when the clipboard
+holds an image *and no text*, Cmd+V forwards the same control byte Ctrl+V sends so
+the app reads the image itself. Normal Cmd+V text paste is unchanged.
 
 ---
 

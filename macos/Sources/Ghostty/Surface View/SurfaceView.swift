@@ -730,17 +730,27 @@ extension Ghostty {
                     return try initialInput.withCString { cInput in
                         config.initial_input = cInput
 
+                        // Inject the surface's unique ID as GHOSTTY_TAB_ID so that
+                        // processes running inside this tab (and tools like
+                        // `ghosttyctl` invoked from Claude Code hooks) can target
+                        // and be attributed back to this exact tab. Explicit
+                        // environment variables take precedence if already set.
+                        var mergedEnv = environmentVariables
+                        if mergedEnv["GHOSTTY_TAB_ID"] == nil {
+                            mergedEnv["GHOSTTY_TAB_ID"] = view.id.uuidString
+                        }
+
                         // Convert dictionary to arrays for easier processing
-                        let keys = Array(environmentVariables.keys)
-                        let values = Array(environmentVariables.values)
+                        let keys = Array(mergedEnv.keys)
+                        let values = Array(mergedEnv.values)
 
                         // Create C strings for all keys and values
                         return try keys.withCStrings { keyCStrings in
                             return try values.withCStrings { valueCStrings in
                                 // Create array of ghostty_env_var_s
                                 var envVars = [ghostty_env_var_s]()
-                                envVars.reserveCapacity(environmentVariables.count)
-                                for i in 0..<environmentVariables.count {
+                                envVars.reserveCapacity(mergedEnv.count)
+                                for i in 0..<mergedEnv.count {
                                     envVars.append(ghostty_env_var_s(
                                         key: keyCStrings[i],
                                         value: valueCStrings[i]
@@ -749,7 +759,7 @@ extension Ghostty {
 
                                 return try envVars.withUnsafeMutableBufferPointer { buffer in
                                     config.env_vars = buffer.baseAddress
-                                    config.env_var_count = environmentVariables.count
+                                    config.env_var_count = mergedEnv.count
                                     return try body(&config)
                                 }
                             }

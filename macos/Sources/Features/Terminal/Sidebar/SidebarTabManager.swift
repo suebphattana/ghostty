@@ -11,6 +11,7 @@ class SidebarTabManager: ObservableObject {
         let gitBranch: String?
         let surfaceId: UUID?
         let statusEntries: [TabMetadataStore.StatusEntry]
+        let ports: [Int]
         let isSelected: Bool
         let needsAttention: Bool
         let tabColor: TerminalTabColor
@@ -32,6 +33,7 @@ class SidebarTabManager: ObservableObject {
                 && lhs.pwd == rhs.pwd && lhs.gitBranch == rhs.gitBranch
                 && lhs.surfaceId == rhs.surfaceId
                 && lhs.statusEntries == rhs.statusEntries
+                && lhs.ports == rhs.ports
                 && lhs.needsAttention == rhs.needsAttention
                 && lhs.tabColor == rhs.tabColor
         }
@@ -187,6 +189,7 @@ class SidebarTabManager: ObservableObject {
             let sid = surface?.id
             let pwd = surface?.pwd
             let entries = sid.map { metadataStore.statusEntries(for: $0) } ?? []
+            let ports = sid.flatMap { PortMonitor.shared.ports(for: $0) } ?? []
             let branch = pwd.flatMap { gitBranch(at: $0) }
             let color = (w as? TerminalWindow)?.tabColor ?? .none
 
@@ -197,6 +200,7 @@ class SidebarTabManager: ObservableObject {
                 gitBranch: branch,
                 surfaceId: sid,
                 statusEntries: entries,
+                ports: ports,
                 isSelected: w === selectedWindow,
                 needsAttention: attentionWindows.contains(wid) && w !== selectedWindow,
                 tabColor: color,

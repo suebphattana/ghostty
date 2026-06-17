@@ -48,6 +48,12 @@ extension NSPasteboard {
         return self.string(forType: .string)
     }
 
+    /// Whether the pasteboard contains raw image data (e.g. a screenshot copied
+    /// to the clipboard), as opposed to text or a file reference.
+    func hasImageContent() -> Bool {
+        canReadObject(forClasses: [NSImage.self], options: nil)
+    }
+
     /// The pasteboard for the Ghostty enum type.
     static func ghostty(_ clipboard: ghostty_clipboard_e) -> NSPasteboard? {
         switch clipboard {

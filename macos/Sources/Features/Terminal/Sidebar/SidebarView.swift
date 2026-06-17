@@ -52,8 +52,73 @@ enum SidebarField: String, Hashable {
     case directory
     case gitBranch = "git-branch"
     case status
+    case ports
 
-    static let defaultFields: Set<SidebarField> = [.title, .directory, .gitBranch, .status]
+    static let defaultFields: Set<SidebarField> = [.title, .directory, .gitBranch, .status, .ports]
+}
+
+// MARK: - StatusState
+
+/// Semantic state for a status entry, driving its color and animation.
+enum StatusState {
+    case working   // amber, pulsing — the agent is actively doing work
+    case done      // green — finished / your turn
+    case error     // red — something failed
+    case idle      // gray — waiting / neutral but explicit
+    case neutral   // no state set; inherits the muted secondary look
+
+    init(_ raw: String?) {
+        switch raw?.lowercased() {
+        case "working", "busy", "running", "active", "thinking":
+            self = .working
+        case "done", "success", "complete", "completed", "ready", "ok":
+            self = .done
+        case "error", "failed", "fail", "blocked":
+            self = .error
+        case "idle", "waiting", "paused":
+            self = .idle
+        default:
+            self = .neutral
+        }
+    }
+
+    /// Whether this state should animate to draw the eye.
+    var pulses: Bool { self == .working }
+
+    func color(theme: SidebarTheme) -> Color {
+        switch self {
+        case .working: return Color(red: 0.95, green: 0.61, blue: 0.07)  // amber
+        case .done:    return Color(red: 0.26, green: 0.78, blue: 0.45)  // green
+        case .error:   return Color(red: 0.93, green: 0.33, blue: 0.31)  // red
+        case .idle:    return theme.secondaryText
+        case .neutral: return theme.secondaryText
+        }
+    }
+}
+
+// MARK: - Pulsing
+
+/// Wraps content in a gentle, time-driven breathing pulse when `active`.
+/// Uses `TimelineView(.animation)` so the pulse is a pure function of state +
+/// time — it starts/stops cleanly across tab refreshes with no animation
+/// lifecycle to manage.
+private struct Pulsing<Content: View>: View {
+    var active: Bool = true
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        if active {
+            TimelineView(.animation) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let phase = (sin(t * 3.2) + 1) / 2  // 0...1
+                content()
+                    .opacity(0.4 + 0.6 * phase)
+                    .scaleEffect(0.82 + 0.18 * phase)
+            }
+        } else {
+            content()
+        }
+    }
 }
 
 // MARK: - SidebarView
@@ -243,9 +308,11 @@ private struct SidebarTabCard: View {
                         Spacer()
 
                         if tab.needsAttention {
-                            Circle()
-                                .fill(theme.attentionColor)
-                                .frame(width: 8, height: 8)
+                            Pulsing {
+                                Circle()
+                                    .fill(theme.attentionColor)
+                                    .frame(width: 10, height: 10)
+                            }
                         }
                     }
                 }
@@ -279,16 +346,19 @@ private struct SidebarTabCard: View {
                 // Status entries
                 if fields.contains(.status), !tab.statusEntries.isEmpty {
                     ForEach(tab.statusEntries, id: \.key) { entry in
-                        HStack(spacing: 4) {
-                            if let icon = entry.icon {
-                                Image(systemName: icon)
-                                    .font(.system(size: 9))
-                                    .foregroundColor(theme.secondaryText)
-                            }
-                            Text(entry.value)
-                                .font(.system(size: 10))
-                                .foregroundColor(theme.secondaryText)
-                                .lineLimit(1)
+                        StatusRowView(entry: entry, theme: theme)
+                    }
+                }
+
+                // Listening ports detected for processes running in this tab.
+                // Each is a clickable chip that opens http://localhost:<port>.
+                if fields.contains(.ports), !tab.ports.isEmpty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "network")
+                            .font(.system(size: 9))
+                            .foregroundColor(theme.secondaryText)
+                        ForEach(tab.ports, id: \.self) { port in
+                            PortChip(port: port)
                         }
                     }
                 }
@@ -310,5 +380,73 @@ private struct SidebarTabCard: View {
                 }
             }
         )
+    }
+}
+
+// MARK: - StatusRowView
+
+/// A single status entry rendered with a colored indicator + colored text,
+/// pulsing while the state is `working`.
+private struct StatusRowView: View {
+    let entry: TabMetadataStore.StatusEntry
+    let theme: SidebarTheme
+
+    var body: some View {
+        let state = StatusState(entry.state)
+        let color = state.color(theme: theme)
+        let isNeutral = (state == .neutral)
+
+        HStack(spacing: 5) {
+            Pulsing(active: state.pulses) {
+                Group {
+                    if let icon = entry.icon {
+                        Image(systemName: icon)
+                            .font(.system(size: 10, weight: .semibold))
+                    } else {
+                        Circle()
+                            .frame(width: 8, height: 8)
+                    }
+                }
+                .foregroundColor(color)
+            }
+
+            Text(entry.value)
+                .font(.system(size: isNeutral ? 10 : 11, weight: isNeutral ? .regular : .medium))
+                .foregroundColor(color)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+}
+
+// MARK: - PortChip
+
+/// A clickable `:port` chip that opens http://localhost:<port> in the browser.
+private struct PortChip: View {
+    let port: Int
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            if let url = URL(string: "http://localhost:\(port)") {
+                NSWorkspace.shared.open(url)
+            }
+        } label: {
+            Text(":\(port)")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.accentColor)
+                .opacity(hovering ? 1.0 : 0.82)
+        }
+        .buttonStyle(.plain)
+        .help("Open http://localhost:\(port)")
+        .onHover { inside in
+            hovering = inside
+            if inside {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
     }
 }

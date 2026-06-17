@@ -1,0 +1,61 @@
+name: Build macOS App (sidebar fork)
+
+# Builds the native macOS Ghostty.app on a clean GitHub-hosted runner and
+# uploads it as a downloadable artifact. Mirrors the upstream build-macos
+# recipe (build GhosttyKit inside the Nix dev shell, then xcodebuild outside it)
+# but runs on standard GitHub infrastructure instead of private runners.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [sidebar-features]
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos-app:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Ensure Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain || true
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+
+      - name: Fetch Zig deps
+        id: deps
+        run: |
+          nix build -L .#deps
+          echo "deps=$(readlink ./result)" >> "$GITHUB_OUTPUT"
+
+      - name: Build GhosttyKit (inside Nix dev shell)
+        run: nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false
+
+      - name: Build Ghostty.app (outside Nix)
+        run: |
+          cd macos
+          xcodebuild -target Ghostty -configuration Debug -derivedDataPath build \
+            ONLY_ACTIVE_ARCH=YES ARCHS=arm64 CODE_SIGNING_ALLOWED=YES
+
+      - name: Package app
+        run: |
+          cd macos/build/Build/Products/Debug
+          ditto -c -k --keepParent Ghostty.app Ghostty-app.zip
+          ls -la
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghostty-sidebar-app
+          path: macos/build/Build/Products/Debug/Ghostty-app.zip
+          if-no-files-found: error

@@ -305,7 +305,8 @@ final class GhosttyIPCServer {
         }
 
         let icon = params["icon"] as? String
-        TabMetadataStore.shared.setStatus(tabId: surface.id, key: key, value: value, icon: icon)
+        let state = params["state"] as? String
+        TabMetadataStore.shared.setStatus(tabId: surface.id, key: key, value: value, icon: icon, state: state)
         sendOk(["status_set": true], to: client)
     }
 

@@ -11,6 +11,9 @@ final class TabMetadataStore: ObservableObject {
         let key: String
         let value: String
         let icon: String?  // SF Symbol name, optional
+        /// Optional semantic state that drives color + animation in the sidebar.
+        /// One of: "working", "done", "error", "idle". nil = neutral (no color).
+        let state: String?
     }
 
     /// Status entries keyed by tab UUID, then by status key
@@ -18,11 +21,11 @@ final class TabMetadataStore: ObservableObject {
 
     private init() {}
 
-    func setStatus(tabId: UUID, key: String, value: String, icon: String? = nil) {
+    func setStatus(tabId: UUID, key: String, value: String, icon: String? = nil, state: String? = nil) {
         if entries[tabId] == nil {
             entries[tabId] = [:]
         }
-        entries[tabId]?[key] = StatusEntry(key: key, value: value, icon: icon)
+        entries[tabId]?[key] = StatusEntry(key: key, value: value, icon: icon, state: state)
     }
 
     func clearStatus(tabId: UUID, key: String) {

@@ -21,7 +21,13 @@ Commands:
   rename <title>           Rename the current tab (empty string to clear)
   notify <message>         Send a notification (short form)
   notify --title T --body B  Send a notification (long form)
-  set-status <key> <value> [--icon <sf-symbol>]  Set status metadata
+  set-status <key> <value> [--icon <sf-symbol>] [--state <state>]
+                           Set status metadata. --state colorizes + animates the
+                           sidebar entry. <state> is one of:
+                             working  amber, pulsing  (agent is busy)
+                             done     green           (finished / your turn)
+                             error    red             (something failed)
+                             idle     gray            (waiting / neutral)
   clear-status <key>       Clear a status key
   list                     List all tabs (JSON)
   current                  Get current tab info (JSON)
@@ -124,7 +130,7 @@ cmd_set_status() {
         exit 1
     fi
 
-    local key value icon=""
+    local key value icon="" state=""
     key="$(json_escape "$1")"
     value="$(json_escape "$2")"
     shift 2
@@ -135,6 +141,10 @@ cmd_set_status() {
                 icon="$(json_escape "$2")"
                 shift 2
                 ;;
+            --state)
+                state="$(json_escape "$2")"
+                shift 2
+                ;;
             *)
                 echo "error: unknown option: $1" >&2
                 exit 1
@@ -142,12 +152,15 @@ cmd_set_status() {
         esac
     done
 
-    local icon_fragment=""
+    local icon_fragment="" state_fragment=""
     if [[ -n "$icon" ]]; then
         icon_fragment=", \"icon\": \"$icon\""
     fi
+    if [[ -n "$state" ]]; then
+        state_fragment=", \"state\": \"$state\""
+    fi
 
-    send_request "{\"method\": \"tab.set-status\", \"params\": {$(tab_id_param)\"key\": \"$key\", \"value\": \"$value\"$icon_fragment}}"
+    send_request "{\"method\": \"tab.set-status\", \"params\": {$(tab_id_param)\"key\": \"$key\", \"value\": \"$value\"$icon_fragment$state_fragment}}"
 }
 
 cmd_clear_status() {
