@@ -48,10 +48,32 @@ extension NSPasteboard {
         return self.string(forType: .string)
     }
 
-    /// Whether the pasteboard contains raw image data (e.g. a screenshot copied
-    /// to the clipboard), as opposed to text or a file reference.
-    func hasImageContent() -> Bool {
-        canReadObject(forClasses: [NSImage.self], options: nil)
+    /// If the pasteboard holds raw image data (e.g. a screenshot copied to the
+    /// clipboard), write it to a temporary PNG file and return the path. Returns
+    /// nil if there is no image. Used to paste images into terminal apps (like
+    /// Claude Code) that accept an image file path — this mirrors what dropping
+    /// an image file onto the terminal already does.
+    func writeImageToTemporaryFile() -> String? {
+        let pngData: Data?
+        if let png = data(forType: .png) {
+            pngData = png
+        } else if let tiff = data(forType: .tiff),
+                  let rep = NSBitmapImageRep(data: tiff),
+                  let png = rep.representation(using: .png, properties: [:]) {
+            pngData = png
+        } else {
+            pngData = nil
+        }
+        guard let data = pngData else { return nil }
+
+        let name = "ghostty-paste-\(UUID().uuidString).png"
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(name)
+        do {
+            try data.write(to: url)
+            return url.path
+        } catch {
+            return nil
+        }
     }
 
     /// The pasteboard for the Ghostty enum type.
