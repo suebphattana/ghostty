@@ -44,7 +44,7 @@ jobs:
       - name: Build Ghostty.app (outside Nix)
         run: |
           cd macos
-          xcodebuild -target Ghostty -configuration Debug -derivedDataPath build \
+          xcodebuild -scheme Ghostty -configuration Debug -derivedDataPath build \
             ONLY_ACTIVE_ARCH=YES ARCHS=arm64 CODE_SIGNING_ALLOWED=YES
 
       - name: Package app
