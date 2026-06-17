@@ -1,9 +1,13 @@
 name: Build macOS App (sidebar fork)
 
-# Builds the native macOS Ghostty.app on a clean GitHub-hosted runner and
-# uploads it as a downloadable artifact. Mirrors the upstream build-macos
-# recipe (build GhosttyKit inside the Nix dev shell, then xcodebuild outside it)
-# but runs on standard GitHub infrastructure instead of private runners.
+# Builds the native macOS Ghostty.app and uploads it as a downloadable artifact.
+#
+# Split into two jobs because the two halves need different macOS versions:
+#   * GhosttyKit (zig built inside the Nix dev shell) only links cleanly on
+#     macОS 15 (Sequoia); on macOS 26 (Tahoe) Nix hits a libSystem linker bug.
+#   * The native app uses Swift 6.x sources that require Xcode 26, which is only
+#     on the macOS 26 runner.
+# So: build GhosttyKit on macos-15, then build the app on macos-26 with Xcode 26.
 
 on:
   workflow_dispatch: {}
@@ -14,23 +18,12 @@ permissions:
   contents: read
 
 jobs:
-  build-macos-app:
-    runs-on: macos-26
-    timeout-minutes: 120
+  ghosttykit:
+    name: Build GhosttyKit (macos-15 / Nix)
+    runs-on: macos-15
+    timeout-minutes: 90
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Select Xcode 26
-        run: |
-          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
-          [ -z "$XC" ] && XC=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
-          echo "Selecting $XC"
-          sudo xcode-select -s "$XC/Contents/Developer"
-          xcodebuild -version
-
-      - name: Ensure Metal Toolchain
-        run: xcodebuild -downloadComponent MetalToolchain || true
+      - uses: actions/checkout@v4
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
@@ -46,7 +39,47 @@ jobs:
       - name: Build GhosttyKit (inside Nix dev shell)
         run: nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false
 
-      - name: Build Ghostty.app (outside Nix)
+      - name: Bundle outputs (xcframework + resources)
+        run: |
+          tar -czf ghosttykit-bundle.tar.gz macos/GhosttyKit.xcframework $([ -d zig-out ] && echo zig-out)
+          ls -la ghosttykit-bundle.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ghosttykit-bundle
+          path: ghosttykit-bundle.tar.gz
+          if-no-files-found: error
+
+  app:
+    name: Build Ghostty.app (macos-26 / Xcode 26)
+    needs: ghosttykit
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -z "$XC" ] && XC=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          echo "Selecting $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+
+      - name: Ensure Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain || true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ghosttykit-bundle
+
+      - name: Restore prebuilt GhosttyKit + resources
+        run: |
+          rm -rf macos/GhosttyKit.xcframework zig-out
+          tar -xzf ghosttykit-bundle.tar.gz
+          ls -la macos/GhosttyKit.xcframework
+
+      - name: Build Ghostty.app
         run: |
           cd macos
           xcodebuild -scheme Ghostty -configuration Debug -derivedDataPath build \
@@ -58,8 +91,7 @@ jobs:
           ditto -c -k --keepParent Ghostty.app Ghostty-app.zip
           ls -la
 
-      - name: Upload app artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: Ghostty-sidebar-app
           path: macos/build/Build/Products/Debug/Ghostty-app.zip
